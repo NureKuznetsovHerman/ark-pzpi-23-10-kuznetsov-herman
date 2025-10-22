@@ -1,0 +1,71 @@
+=В.1=
+if age >= 18
+  puts "Adult"
+else
+  puts "Minor"
+end
+
+=В.2=
+user_name = "Bob"
+
+def calculate_total(price, tax)
+  price + tax
+end
+
+class OrderManager
+end
+
+=В.3=
+class HelloWorld
+  def greet
+    puts "Hello, World!"
+  end
+end
+
+=В.4=
+# Обчислює факторіал числа
+def factorial(n)
+  return 1 if n <= 1
+  n * factorial(n - 1)
+end
+
+=В.5=
+# Обчислює середнє значення масиву
+def average(arr : Array(Int32)) : Float64
+  arr.sum.to_f / arr.size
+end
+
+
+=В.6=
+begin
+  result = 100 / gets.to_i
+  puts result
+rescue DivisionByZeroError
+  puts "Ділення на нуль!"
+end
+
+=В.7=
+def calc(a, b)
+  if b != 0
+    return a / b
+  else
+    return 0
+  end
+end
+
+=В.8=
+# Обчислює ділення з перевіркою
+def safe_division(a : Int32, b : Int32) : Float64
+  raise ArgumentError.new("b не може бути 0") if b == 0
+  a.to_f / b
+end
+
+=В.9=
+def x(a,b)puts a+b;end
+
+=В.10=
+# Обчислює суму
+def add(a : Int32, b : Int32) : Int32
+  a + b
+end
+
