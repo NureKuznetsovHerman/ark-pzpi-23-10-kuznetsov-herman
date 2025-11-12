@@ -1,0 +1,612 @@
+Метод Encapsulate Collection (138)
+ 
+Взятий код:
+#include <stdio.h>
+#include <time.h>
+#include <windows.h>
+#include <locale.h>
+int main() {
+ setlocale(LC_ALL, "Ukrainian");
+ SetConsoleOutputCP(1251);
+ // Максимальне значення 32-бітного time_t
+ time_t max_32bit_time = 0x7FFFFFFF;
+ // Перетворення в локальний час з використанням безпечної функції
+ struct tm timeinfo;
+ errno_t err = localtime_s(&timeinfo, &max_32bit_time);
+ if (err != 0) {
+ printf("Помилка перетворення часу: %d\n", err);
+ return 1;
+ }
+ printf("Остання дата для 32-бітного time_t:\n");
+ printf("Дата: %02d.%02d.%d\n",
+ timeinfo.tm_mday,
+ timeinfo.tm_mon + 1,
+ timeinfo.tm_year + 1900);
+ printf("Час: %02d:%02d:%02d\n",
+ timeinfo.tm_hour,
+ timeinfo.tm_min,
+ timeinfo.tm_sec);
+ // Альтернативно через SYSTEMTIME (Windows)
+ SYSTEMTIME sysTime;
+ ULARGE_INTEGER uli;
+ uli.QuadPart = (max_32bit_time * 10000000LL) + 116444736000000000LL;
+ FILETIME fileTime;
+ fileTime.dwLowDateTime = uli.LowPart;
+ fileTime.dwHighDateTime = uli.HighPart;
+ FileTimeToSystemTime(&fileTime, &sysTime);
+ printf("\nУ форматі SYSTEMTIME:\n");
+ printf("Дата: %02d.%02d.%d\n",
+ sysTime.wDay, sysTime.wMonth, sysTime.wYear);
+ printf("Час: %02d:%02d:%02d\n",
+ sysTime.wHour, sysTime.wMinute, sysTime.wSecond);
+ return 0;
+}
+
+Рефакторінг:
+#include <stdio.h>
+#include <time.h>
+#include <windows.h>
+#include <locale.h>
+
+class TimeWrapper {
+private:
+    struct tm timeinfo{};
+public:
+    bool SetTime(time_t raw_time) {
+        return localtime_s(&timeinfo, &raw_time) == 0;
+    }
+    struct tm GetTime() const { return timeinfo; }
+};
+
+int main() {
+    setlocale(LC_ALL, "Ukrainian");
+    SetConsoleOutputCP(1251);
+
+    time_t max_32bit_time = 0x7FFFFFFF;
+    TimeWrapper tw;
+    if (!tw.SetTime(max_32bit_time)) {
+        printf("Помилка перетворення часу\n");
+        return 1;
+    }
+
+    struct tm t = tw.GetTime();
+    printf("Остання дата для 32-бітного time_t: %02d.%02d.%d %02d:%02d:%02d\n",
+           t.tm_mday, t.tm_mon + 1, t.tm_year + 1900,
+           t.tm_hour, t.tm_min, t.tm_sec);
+    return 0;
+}
+
+Метод Replace Error code with Exception (203)
+
+Взятий код:
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <chrono>
+#include <ctime>
+#include <windows.h>
+#include <intrin.h>
+using namespace std;
+using namespace std::chrono;
+// Функції для вимірювання точності (залишаються незмінними)
+double measure_time_precision() {
+ vector<double> diffs;
+ const int measurements = 100;
+ for (int i = 0; i < measurements; i++) {
+ time_t start = time(nullptr);
+ time_t end;
+ do {
+ end = time(nullptr);
+ } while (end == start);
+ diffs.push_back(difftime(end, start));
+ }
+ return *min_element(diffs.begin(), diffs.end());
+}
+double measure_clock_precision() {
+ vector<double> diffs;
+ const int measurements = 100;
+ for (int i = 0; i < measurements; i++) {
+ clock_t start = clock();
+ clock_t end;
+ do {
+ end = clock();
+ } while (end == start);
+ diffs.push_back((double)(end - start) / CLOCKS_PER_SEC *
+1000.0);
+ }
+ return *min_element(diffs.begin(), diffs.end());
+}
+double measure_GetSystemTimeAsFileTime_precision() {
+ vector<double> diffs;
+ const int measurements = 100;
+ for (int i = 0; i < measurements; i++) {
+ FILETIME start, end;
+ GetSystemTimeAsFileTime(&start);
+ do {
+ GetSystemTimeAsFileTime(&end);
+ } while (start.dwHighDateTime == end.dwHighDateTime &&
+ start.dwLowDateTime == end.dwLowDateTime);
+ ULARGE_INTEGER start_uli, end_uli;
+ start_uli.LowPart = start.dwLowDateTime;
+ start_uli.HighPart = start.dwHighDateTime;
+ end_uli.LowPart = end.dwLowDateTime;
+ end_uli.HighPart = end.dwHighDateTime;
+ diffs.push_back((end_uli.QuadPart - start_uli.QuadPart) * 0.1);
+ }
+ return *min_element(diffs.begin(), diffs.end());
+}
+double measure_GetSystemTimePreciseAsFileTime_precision() {
+ vector<double> diffs;
+ const int measurements = 100;
+ for (int i = 0; i < measurements; i++) {
+ FILETIME start, end;
+ GetSystemTimePreciseAsFileTime(&start);
+ do {
+ GetSystemTimePreciseAsFileTime(&end);
+ } while (start.dwHighDateTime == end.dwHighDateTime &&
+ start.dwLowDateTime == end.dwLowDateTime);
+ ULARGE_INTEGER start_uli, end_uli;
+ start_uli.LowPart = start.dwLowDateTime;
+ start_uli.HighPart = start.dwHighDateTime;
+ end_uli.LowPart = end.dwLowDateTime;
+ end_uli.HighPart = end.dwHighDateTime;
+ diffs.push_back((end_uli.QuadPart - start_uli.QuadPart) * 0.1);
+ }
+ return *min_element(diffs.begin(), diffs.end());
+}
+double measure_GetTickCount_precision() {
+ vector<double> diffs;
+ const int measurements = 100;
+ for (int i = 0; i < measurements; i++) {
+ DWORD start = GetTickCount();
+ DWORD end;
+ do {
+ end = GetTickCount();
+ } while (end == start);
+ diffs.push_back(static_cast<double>(end - start));
+ }
+ return *min_element(diffs.begin(), diffs.end());
+}
+double measure_rdtsc_precision() {
+ vector<double> diffs;
+ const int measurements = 100;
+ for (int i = 0; i < measurements; i++) {
+ unsigned long long start = __rdtsc();
+ unsigned long long end;
+ do {
+ end = __rdtsc();
+ } while (end == start);
+ diffs.push_back(static_cast<double>(end - start));
+ }
+ return *min_element(diffs.begin(), diffs.end());
+}
+double measure_QueryPerformanceCounter_precision() {
+ vector<double> diffs;
+ const int measurements = 100;
+ LARGE_INTEGER frequency;
+ QueryPerformanceFrequency(&frequency);
+ for (int i = 0; i < measurements; i++) {
+ LARGE_INTEGER start, end;
+ QueryPerformanceCounter(&start);
+ do {
+ QueryPerformanceCounter(&end);
+ } while (end.QuadPart == start.QuadPart);
+ diffs.push_back((end.QuadPart - start.QuadPart) * 1000000.0 /
+frequency.QuadPart);
+ }
+ return *min_element(diffs.begin(), diffs.end());
+}
+double measure_chrono_precision() {
+ vector<double> diffs;
+ const int measurements = 100;
+ for (int i = 0; i < measurements; i++) {
+ auto start = high_resolution_clock::now();
+ auto end = high_resolution_clock::now();
+ while (end == start) {
+ end = high_resolution_clock::now();
+ }
+ auto duration = duration_cast<nanoseconds>(end - start);
+ diffs.push_back(static_cast<double>(duration.count()));
+ }
+ return *min_element(diffs.begin(), diffs.end());
+}
+// НОВІ ФУНКЦІЇ ДЛЯ ВИМІРЮВАННЯ ЧАСУ ДОДАВАННЯ МАСИВУ
+// Вимірювання за допомогою __rdtsc
+double measure_array_sum_with_rdtsc() {
+ const int SIZE = 1000;
+ vector<int> array(SIZE, 1); // Масив з 1000 одиниць
+ const int ITERATIONS = 10000; // Багато ітерацій для точності
+ unsigned long long total_cycles = 0;
+ for (int iter = 0; iter < ITERATIONS; iter++) {
+ int sum = 0;
+ unsigned long long start = __rdtsc();
+ // Додавання елементів масиву
+ for (int i = 0; i < SIZE; i++) {
+ sum += array[i];
+ }
+ unsigned long long end = __rdtsc();
+ total_cycles += (end - start);
+ // Використовуємо sum щоб уникнути оптимізації
+ if (sum != SIZE) {
+ cout << "Помилка в обчисленнях!" << endl;
+ }
+ }
+ return static_cast<double>(total_cycles) / ITERATIONS;
+}
+// Вимірювання за допомогою QueryPerformanceCounter
+double measure_array_sum_with_qpc() {
+ const int SIZE = 1000;
+ vector<int> array(SIZE, 1);
+ const int ITERATIONS = 10000;
+ LARGE_INTEGER frequency;
+ QueryPerformanceFrequency(&frequency);
+ double total_time = 0.0;
+ for (int iter = 0; iter < ITERATIONS; iter++) {
+ int sum = 0;
+ LARGE_INTEGER start, end;
+ QueryPerformanceCounter(&start);
+ // Додавання елементів масиву
+ for (int i = 0; i < SIZE; i++) {
+ sum += array[i];
+ }
+ QueryPerformanceCounter(&end);
+ double iteration_time = (end.QuadPart - start.QuadPart) *
+1000000.0 / frequency.QuadPart;
+ total_time += iteration_time;
+ if (sum != SIZE) {
+ cout << "Помилка в обчисленнях!" << endl;
+ }
+ }
+ return total_time / ITERATIONS;
+}
+// Вимірювання за допомогою std::chrono (для порівняння)
+double measure_array_sum_with_chrono() {
+ const int SIZE = 1000;
+ vector<int> array(SIZE, 1);
+ const int ITERATIONS = 10000;
+ double total_time = 0.0;
+ for (int iter = 0; iter < ITERATIONS; iter++) {
+ int sum = 0;
+ auto start = high_resolution_clock::now();
+ // Додавання елементів масиву
+ for (int i = 0; i < SIZE; i++) {
+ sum += array[i];
+ }
+ auto end = high_resolution_clock::now();
+ auto duration = duration_cast<nanoseconds>(end - start);
+ total_time += duration.count() / 1000.0; // Конвертуємо в
+мікросекунди
+ if (sum != SIZE) {
+ cout << "Помилка в обчисленнях!" << endl;
+ }
+ }
+ return total_time / ITERATIONS;
+}
+int main() {
+ setlocale(LC_ALL, "Ukrainian");
+ SetConsoleOutputCP(1251);
+ cout << "Вимірювання точності функцій для виміру часу:\n\n";
+ cout << "time(): " << measure_time_precision() << " секунд\n";
+ cout << "clock(): " << measure_clock_precision() << " мілісекунд\n";
+ cout << "GetSystemTimeAsFileTime(): " <<
+measure_GetSystemTimeAsFileTime_precision() << " наносекунд\n";
+ cout << "GetSystemTimePreciseAsFileTime(): " <<
+measure_GetSystemTimePreciseAsFileTime_precision() << " наносекунд\n";
+ cout << "GetTickCount(): " << measure_GetTickCount_precision() << "
+мілісекунд\n";
+ cout << "__rdtsc(): " << measure_rdtsc_precision() << " тактів\n";
+ cout << "QueryPerformanceCounter(): " <<
+measure_QueryPerformanceCounter_precision() << " мікросекунд\n";
+ cout << "std::chrono: " << measure_chrono_precision() << "
+наносекунд\n";
+ cout << "\n--- Вимірювання часу додавання масиву 1000 елементів ---
+\n";
+ // Виконуємо кожен тест кілька разів для стабільності
+ const int TEST_RUNS = 5;
+ cout << "\nРезультати вимірювання (середнє значення):\n";
+ for (int run = 0; run < TEST_RUNS; run++) {
+ cout << "\nСпроба " << (run + 1) << ":\n";
+ double rdtsc_time = measure_array_sum_with_rdtsc();
+ double qpc_time = measure_array_sum_with_qpc();
+ double chrono_time = measure_array_sum_with_chrono();
+ cout << "__rdtsc: " << rdtsc_time << " тактів\n";
+ cout << "QueryPerformanceCounter: " << qpc_time << "
+мікросекунд\n";
+ cout << "std::chrono: " << chrono_time << " мікросекунд\n";
+ // Конвертація для порівняння (приблизно)
+ // Припустимо, що 1 такт ≈ 0.5 наносекунди на сучасних
+процесорах (2 ГГц)
+ double rdtsc_converted = rdtsc_time * 0.0005; // Конвертуємо в
+мікросекунди
+ cout << "__rdtsc (конвертовано): " << rdtsc_converted << "
+мікросекунд\n";
+ cout << "Різниця (QPC - RDTSC): " << (qpc_time -
+rdtsc_converted) << " мікросекунд\n";
+ }
+ return 0;
+}
+
+Рефакторінг:
+
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <chrono>
+#include <ctime>
+#include <windows.h>
+#include <intrin.h>
+#include <stdexcept>
+using namespace std;
+using namespace std::chrono;
+
+// Вимірювання з __rdtsc з обробкою виключень
+double measure_array_sum_with_rdtsc() {
+    const int SIZE = 1000;
+    vector<int> array(SIZE, 1);
+    const int ITERATIONS = 10000;
+    unsigned long long total_cycles = 0;
+
+    for (int iter = 0; iter < ITERATIONS; iter++) {
+        int sum = 0;
+        unsigned long long start = __rdtsc();
+        for (int i = 0; i < SIZE; i++)
+            sum += array[i];
+        unsigned long long end = __rdtsc();
+
+        if (sum != SIZE)
+            throw runtime_error("Помилка в обчисленнях при RDTSC!");
+
+        total_cycles += (end - start);
+    }
+    return static_cast<double>(total_cycles) / ITERATIONS;
+}
+
+// Вимірювання з QueryPerformanceCounter з обробкою виключень
+double measure_array_sum_with_qpc() {
+    const int SIZE = 1000;
+    vector<int> array(SIZE, 1);
+    const int ITERATIONS = 10000;
+    LARGE_INTEGER frequency;
+    if (!QueryPerformanceFrequency(&frequency))
+        throw runtime_error("Помилка: неможливо отримати частоту таймера QPC!");
+
+    double total_time = 0.0;
+    for (int iter = 0; iter < ITERATIONS; iter++) {
+        int sum = 0;
+        LARGE_INTEGER start, end;
+        QueryPerformanceCounter(&start);
+        for (int i = 0; i < SIZE; i++)
+            sum += array[i];
+        QueryPerformanceCounter(&end);
+
+        if (sum != SIZE)
+            throw runtime_error("Помилка в обчисленнях при QPC!");
+
+        double iteration_time = (end.QuadPart - start.QuadPart) * 1000000.0 / frequency.QuadPart;
+        total_time += iteration_time;
+    }
+    return total_time / ITERATIONS;
+}
+
+// Вимірювання з std::chrono з обробкою виключень
+double measure_array_sum_with_chrono() {
+    const int SIZE = 1000;
+    vector<int> array(SIZE, 1);
+    const int ITERATIONS = 10000;
+    double total_time = 0.0;
+
+    for (int iter = 0; iter < ITERATIONS; iter++) {
+        int sum = 0;
+        auto start = high_resolution_clock::now();
+        for (int i = 0; i < SIZE; i++)
+            sum += array[i];
+        auto end = high_resolution_clock::now();
+
+        if (sum != SIZE)
+            throw runtime_error("Помилка в обчисленнях при chrono!");
+
+        auto duration = duration_cast<nanoseconds>(end - start);
+        total_time += duration.count() / 1000.0;
+    }
+    return total_time / ITERATIONS;
+}
+
+int main() {
+    setlocale(LC_ALL, "Ukrainian");
+    SetConsoleOutputCP(1251);
+
+    try {
+        cout << "--- Вимірювання часу додавання масиву (з виключеннями) ---\n\n";
+
+        double rdtsc_time = measure_array_sum_with_rdtsc();
+        double qpc_time = measure_array_sum_with_qpc();
+        double chrono_time = measure_array_sum_with_chrono();
+
+        cout << "__rdtsc: " << rdtsc_time << " тактів\n";
+        cout << "QueryPerformanceCounter: " << qpc_time << " мікросекунд\n";
+        cout << "std::chrono: " << chrono_time << " мікросекунд\n";
+    }
+    catch (const exception& e) {
+        cerr << "Виникла помилка: " << e.what() << endl;
+        return 1; // Код повернення тепер використовується тільки при виключенні
+    }
+
+    return 0;
+}
+
+Метод Replace Delegation with Inheritance (235)
+Взятий код:
+#include <iostream>
+#include <vector>
+#include <chrono>
+#include <windows.h>
+using namespace std;
+// Множення без об'єктів
+void multiplyArrays(int n, int** A, int** B, int** C) {
+ for (int i = 0; i < n; i++)
+ for (int j = 0; j < n; j++) {
+ C[i][j] = 0;
+ for (int k = 0; k < n; k++)
+ C[i][j] += A[i][k] * B[k][j];
+ }
+}
+class Matrix {
+public:
+ int n;
+ vector<vector<int>> mat;
+ Matrix(int size) : n(size) {
+ mat.resize(n, vector<int>(n, 0));
+ }
+ void fill() {
+ int val = 1;
+ for (int i = 0; i < n; i++)
+ for (int j = 0; j < n; j++)
+ mat[i][j] = val++;
+ }
+ Matrix multiply(const Matrix& B) {
+ Matrix C(n);
+ for (int i = 0; i < n; i++)
+ for (int j = 0; j < n; j++)
+ for (int k = 0; k < n; k++)
+ C.mat[i][j] += mat[i][k] * B.mat[k][j];
+ return C;
+ }
+};
+// Вимір часу
+template<typename Func>
+double measureTime(Func f) {
+ auto start = chrono::high_resolution_clock::now();
+ f();
+ auto end = chrono::high_resolution_clock::now();
+ chrono::duration<double> elapsed = end - start;
+ return elapsed.count();
+}
+int main() {
+ setlocale(LC_ALL, "Ukrainian");
+ SetConsoleOutputCP(1251);
+ vector<int> sizes = { 512, 1024, 2048 };
+ for (int n : sizes) {
+ cout << "\n=== n = " << n << " ===\n";
+ // ----- Масиви -----
+ int** A = new int* [n];
+ int** B = new int* [n];
+ int** C = new int* [n];
+ for (int i = 0; i < n; i++) {
+ A[i] = new int[n];
+ B[i] = new int[n];
+ C[i] = new int[n];
+ for (int j = 0; j < n; j++) {
+ A[i][j] = i + j + 1;
+ B[i][j] = i - j + 1;
+ }
+ }
+ double timeArrays = measureTime([&]() { multiplyArrays(n, A, B,
+C); });
+ cout << "Масиви: час = " << timeArrays << " с\n";
+ for (int i = 0; i < n; i++) {
+ delete[] A[i];
+ delete[] B[i];
+ delete[] C[i];
+ }
+ delete[] A; delete[] B; delete[] C;
+ // ----- Об'єкти -----
+ Matrix MA(n), MB(n);
+ MA.fill();
+ MB.fill();
+ double timeObjects = measureTime([&]() { Matrix MC =
+MA.multiply(MB); });
+ cout << "Об'єкти: час = " << timeObjects << " с\n";
+ cout << "O(n^3) ~ " << (long long)n * n * n << " операцій\n";
+ }
+ return 0;
+}
+
+Рефакторінг:
+#include <iostream>
+#include <vector>
+#include <chrono>
+#include <windows.h>
+using namespace std;
+// Множення без об'єктів
+void multiplyArrays(int n, int** A, int** B, int** C) {
+ for (int i = 0; i < n; i++)
+ for (int j = 0; j < n; j++) {
+ C[i][j] = 0;
+ for (int k = 0; k < n; k++)
+ C[i][j] += A[i][k] * B[k][j];
+ }
+}
+class Matrix {
+public:
+    int n;
+    vector<vector<int>> mat;
+
+    Matrix(int size) : n(size) {
+        mat.resize(n, vector<int>(n, 0));
+    }
+
+    void fill() {
+        int val = 1;
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
+                mat[i][j] = val++;
+    }
+
+    Matrix multiply(const Matrix& B) {
+        Matrix C(n);
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
+                for (int k = 0; k < n; k++)
+                    C.mat[i][j] += mat[i][k] * B.mat[k][j];
+        return C;
+    }
+};
+
+// Вимір часу
+template<typename Func>
+double measureTime(Func f) {
+ auto start = chrono::high_resolution_clock::now();
+ f();
+ auto end = chrono::high_resolution_clock::now();
+ chrono::duration<double> elapsed = end - start;
+ return elapsed.count();
+}
+int main() {
+ setlocale(LC_ALL, "Ukrainian");
+ SetConsoleOutputCP(1251);
+ vector<int> sizes = { 512, 1024, 2048 };
+ for (int n : sizes) {
+ cout << "\n=== n = " << n << " ===\n";
+ // ----- Масиви -----
+ int** A = new int* [n];
+ int** B = new int* [n];
+ int** C = new int* [n];
+ for (int i = 0; i < n; i++) {
+ A[i] = new int[n];
+ B[i] = new int[n];
+ C[i] = new int[n];
+ for (int j = 0; j < n; j++) {
+ A[i][j] = i + j + 1;
+ B[i][j] = i - j + 1;
+ }
+ }
+ double timeArrays = measureTime([&]() { multiplyArrays(n, A, B,
+C); });
+ cout << "Масиви: час = " << timeArrays << " с\n";
+ for (int i = 0; i < n; i++) {
+ delete[] A[i];
+ delete[] B[i];
+ delete[] C[i];
+ }
+ delete[] A; delete[] B; delete[] C;
+ // ----- Об'єкти -----
+ Matrix MA(n), MB(n);
+ MA.fill();
+ MB.fill();
+ double timeObjects = measureTime([&]() { Matrix MC =
+MA.multiply(MB); });
+ cout << "Об'єкти: час = " << timeObjects << " с\n";
+ cout << "O(n^3) ~ " << (long long)n * n * n << " операцій\n";
+ }
+ return 0;
+}
