@@ -124,7 +124,7 @@ Wesley, 2018. – 512 p.
 
  
 ДОДАТОК А 
-Посилання на відеоролик на YouTube: https://youtu.be/ttnEzuxXxyI 
+Посилання на відеоролик на YouTube: https://youtu.be/ttnEzuxXxyI
 
  
 ДОДАТОК Б 
@@ -784,4 +784,5 @@ MA.multiply(MB); });
 }
 
 1
+
 
